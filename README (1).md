@@ -56,6 +56,9 @@ All tiers are priced below a worker's daily tip income to maximise adoption. Pre
 > **Note on T6 (Pro Only):** In the demo, T6 uses simulated platform status logs and synthetic order API failure rate data. In production, this trigger would be validated through public platform status pages (e.g., status.blinkit.com), order API failure rate monitoring as a proxy, and cross-worker signal correlation — if >30% of active workers in a zone stop receiving orders simultaneously, that constitutes evidence of a platform disruption independent of any partner API access.
 ---
 
+**Payout formula:** `payout = hourly_rate × eligible_hours` subject to waiting period, daily hour cap, and weekly coverage cap.
+
+
 ## Features
 
 ### 1. AI-Powered Risk Assessment
