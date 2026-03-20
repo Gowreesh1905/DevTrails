@@ -244,7 +244,30 @@ This eliminates the need for workers to understand claim processes — the syste
 
 ---
 
-### 4. Analytics Dashboard
+### 4. 💡 Flexible Coverage — Pause + Credit Wallet
+
+SwiftShield introduces a flexible wallet system tailored for gig workers.
+
+#### What it does:
+- Allows workers to **pause their insurance policy anytime**
+- Converts **unused premium into wallet balance**
+- Enables **reuse of balance for future policy purchases**
+
+#### Example:
+- Weekly premium: ₹100  
+- Used for 3 days → 4 days unused  
+- ₹60 credited to wallet  
+- Next week premium ₹90 → worker pays only ₹30 using wallet  
+
+#### Wallet Rules (Fraud Prevention):
+- Wallet credit only from unused coverage
+- Cannot pause during active disruption
+- Cannot claim and pause simultaneously
+- Wallet balance is non-withdrawable (only usable for insurance)
+
+---
+
+### 5. Analytics Dashboard
 
 #### Worker View
 - Total income protected this week (₹ amount covered by active claims)
@@ -262,7 +285,7 @@ This eliminates the need for workers to understand claim processes — the syste
 
 ---
 
-### 5. Integration Capabilities
+### 6. Integration Capabilities
 
 All integrations follow an **adapter pattern** — mock providers are used for the demo, and real providers can be swapped in without changing application logic.
 
@@ -358,11 +381,35 @@ IMD / OpenWeather          Flood Sensor Feed          Govt. Advisory API
 
 ## Getting Started
 
+First, run the development server:
+
 ```bash
-npm install
 npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000)
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-> **Note:** This is a hackathon prototype. All third-party integrations (weather, flood sensors, platform APIs, payments) are mocked and designed for real-provider substitution via the adapter layer.
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+
+## Learn More
+
+To learn more about Next.js, take a look at the following resources:
+
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+
+## Deploy on Vercel
+
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
