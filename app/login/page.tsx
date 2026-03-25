@@ -1,10 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { getWorkerByPhone, DEMO_PHONE } from "@/lib/data";
+import { supabase } from "@/lib/supabase";
+import type { Worker } from "@/lib/database.types";
 
 type Platform = "blinkit" | "zepto" | "instamart" | null;
 type Step = "platform" | "phone" | "otp";
+
+// Demo phone numbers for quick reference
+const DEMO_PHONES = {
+  blinkit: ["9876543210", "9111222333", "9777888999"],
+  zepto: ["9988776655", "9444555666"],
+  instamart: ["9222333444"],
+};
 
 export default function LoginPage() {
   const [selectedPlatform, setSelectedPlatform] = useState<Platform>(null);
@@ -13,6 +21,7 @@ export default function LoginPage() {
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [worker, setWorker] = useState<Worker | null>(null);
 
   const handlePlatformSelect = (platform: Platform) => {
     setSelectedPlatform(platform);
@@ -27,25 +36,42 @@ export default function LoginPage() {
       return;
     }
 
-    // Check if worker exists in our data
-    const worker = getWorkerByPhone(phoneNumber);
-    if (!worker) {
-      setError("No account found. Try demo: " + DEMO_PHONE);
-      return;
-    }
-
-    // Check if platform matches
-    if (worker.platform !== selectedPlatform) {
-      setError(`This number is registered with ${worker.platform === "blinkit" ? "Blinkit" : worker.platform === "instamart" ? "Swiggy Instamart" : "Zepto"}`);
-      return;
-    }
-
     setIsLoading(true);
     setError("");
-    // Simulate OTP send
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setIsLoading(false);
-    setStep("otp");
+
+    try {
+      // Fetch worker from Supabase
+      const { data, error: fetchError } = await supabase
+        .from("workers")
+        .select("*")
+        .eq("phone", phoneNumber)
+        .single();
+
+      if (fetchError || !data) {
+        const demoPhone = selectedPlatform ? DEMO_PHONES[selectedPlatform][0] : "9876543210";
+        setError(`No account found. Try demo: ${demoPhone}`);
+        setIsLoading(false);
+        return;
+      }
+
+      // Check if platform matches
+      if (data.platform !== selectedPlatform) {
+        const platformName = data.platform === "blinkit" ? "Blinkit" :
+                            data.platform === "instamart" ? "Swiggy Instamart" : "Zepto";
+        setError(`This number is registered with ${platformName}`);
+        setIsLoading(false);
+        return;
+      }
+
+      setWorker(data);
+      // Simulate OTP send (in production, use Supabase Auth with phone)
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      setIsLoading(false);
+      setStep("otp");
+    } catch {
+      setError("Something went wrong. Please try again.");
+      setIsLoading(false);
+    }
   };
 
   const handleOtpChange = (index: number, value: string) => {
@@ -77,12 +103,15 @@ export default function LoginPage() {
     }
     setIsLoading(true);
     setError("");
-    // Simulate verification
+    // Simulate verification (any 6-digit OTP works for demo)
     await new Promise((resolve) => setTimeout(resolve, 1500));
 
-    // Store phone number for dashboard
-    localStorage.setItem("userPhone", phoneNumber);
-    localStorage.setItem("userPlatform", selectedPlatform || "");
+    // Store worker info for dashboard
+    if (worker) {
+      localStorage.setItem("workerId", worker.id);
+      localStorage.setItem("userPhone", phoneNumber);
+      localStorage.setItem("userPlatform", selectedPlatform || "");
+    }
 
     setIsLoading(false);
     // Redirect to dashboard on success

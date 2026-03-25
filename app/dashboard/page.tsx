@@ -2,25 +2,77 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import {
+import type {
   Worker,
-  getWorkerByPhone,
-  DEMO_PHONE,
-  PLAN_TIERS,
-  TRIGGER_DEFINITIONS,
-  DELIVERY_ZONES,
+  InsuranceSubscription,
+  Claim,
+  Payout,
+  DeliveryZone,
+  WorkerVehicle,
+  WorkerWeeklyStats,
+  PlanTierConfig,
   TriggerType,
-} from "@/lib/data";
+} from "@/lib/database.types";
+
+// Trigger icons and names
+const TRIGGER_INFO: Record<TriggerType, { name: string; icon: string }> = {
+  rainfall: { name: "Heavy Rainfall", icon: "🌧️" },
+  extreme_heat: { name: "Extreme Heat", icon: "🔥" },
+  flood: { name: "Urban Flooding", icon: "🌊" },
+  cold_fog: { name: "Dense Fog/Cold", icon: "🌫️" },
+  civil_unrest: { name: "Civil Disruption", icon: "⚠️" },
+  accident: { name: "Minor Accident", icon: "🚗" },
+};
+
+interface DashboardData {
+  worker: Worker;
+  subscription: InsuranceSubscription | null;
+  planConfig: PlanTierConfig | null;
+  vehicle: WorkerVehicle | null;
+  zone: DeliveryZone | null;
+  claims: Claim[];
+  payouts: Payout[];
+  weeklyStats: WorkerWeeklyStats | null;
+}
 
 export default function DashboardPage() {
-  const [worker, setWorker] = useState<Worker | null>(null);
+  const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const phone = localStorage.getItem("userPhone") || DEMO_PHONE;
-    const workerData = getWorkerByPhone(phone);
-    setWorker(workerData);
-    setLoading(false);
+    async function fetchDashboardData() {
+      const workerId = localStorage.getItem("workerId");
+      const phone = localStorage.getItem("userPhone");
+
+      if (!workerId && !phone) {
+        setError("Not logged in");
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const params = new URLSearchParams();
+        if (workerId) params.set("workerId", workerId);
+        if (!workerId && phone) params.set("phone", phone);
+
+        const res = await fetch(`/api/dashboard?${params.toString()}`);
+        if (!res.ok) {
+          const payload = await res.json().catch(() => null);
+          setError(payload?.error || "Failed to load dashboard data");
+          return;
+        }
+
+        const dashboardData = (await res.json()) as DashboardData;
+        setData(dashboardData);
+      } catch {
+        setError("Failed to load dashboard data");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchDashboardData();
   }, []);
 
   if (loading) {
@@ -31,12 +83,12 @@ export default function DashboardPage() {
     );
   }
 
-  if (!worker) {
+  if (error || !data) {
     return (
       <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex items-center justify-center p-4">
         <div className="text-center">
           <h2 className="text-xl font-semibold text-zinc-900 dark:text-white mb-2">
-            Worker not found
+            {error || "Worker not found"}
           </h2>
           <Link href="/login" className="text-blue-600 hover:underline">
             Go to Login
@@ -46,8 +98,7 @@ export default function DashboardPage() {
     );
   }
 
-  const plan = PLAN_TIERS[worker.insurance.planTier];
-  const zone = DELIVERY_ZONES.find((z) => z.id === worker.assignedZone);
+  const { worker, subscription, planConfig, vehicle, zone, claims, payouts, weeklyStats } = data;
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("en-IN", {
@@ -88,11 +139,13 @@ export default function DashboardPage() {
     return colors[tier] || colors.starter;
   };
 
-  const totalClaimsPaid = worker.claims
+  const totalClaimsPaid = claims
     .filter((c) => c.status === "paid")
-    .reduce((sum, c) => sum + c.amount, 0);
+    .reduce((sum, c) => sum + Number(c.amount), 0);
 
-  const remainingCap = plan.weeklyCap - worker.insurance.weeklyClaimTotal;
+  const weeklyClaimTotal = subscription?.weekly_claim_total || 0;
+  const weeklyCap = planConfig?.weekly_cap || 0;
+  const remainingCap = weeklyCap - weeklyClaimTotal;
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
@@ -155,72 +208,81 @@ export default function DashboardPage() {
             >
               {worker.platform === "blinkit" ? "Blinkit" : worker.platform === "instamart" ? "Swiggy Instamart" : "Zepto"} Partner
             </span>
-            <span>{zone?.name}, {zone?.city}</span>
+            <span>{zone?.name || "Unknown Zone"}, {zone?.city || worker.city}</span>
           </p>
         </div>
 
         {/* Insurance Status Card */}
-        <div className={`bg-gradient-to-r ${getPlanColor(worker.insurance.planTier)} rounded-2xl p-6 mb-6 text-white`}>
-          <div className="flex items-start justify-between mb-4">
-            <div>
-              <p className="text-white/70 text-sm">SwiftShield Insurance</p>
-              <h2 className="text-2xl font-bold">{plan.name} Plan</h2>
+        {subscription && planConfig ? (
+          <div className={`bg-gradient-to-r ${getPlanColor(subscription.plan_tier)} rounded-2xl p-6 mb-6 text-white`}>
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <p className="text-white/70 text-sm">SwiftShield Insurance</p>
+                <h2 className="text-2xl font-bold">{planConfig.name} Plan</h2>
+              </div>
+              <span
+                className={`px-3 py-1 rounded-full text-sm font-medium ${subscription.status === "active"
+                  ? "bg-white/20 text-white"
+                  : "bg-red-500 text-white"
+                  }`}
+              >
+                {subscription.status.toUpperCase()}
+              </span>
             </div>
-            <span
-              className={`px-3 py-1 rounded-full text-sm font-medium ${worker.insurance.status === "active"
-                ? "bg-white/20 text-white"
-                : "bg-red-500 text-white"
-                }`}
-            >
-              {worker.insurance.status.toUpperCase()}
-            </span>
-          </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-            <div>
-              <p className="text-white/70 text-sm">Weekly Premium</p>
-              <p className="text-xl font-semibold">{formatCurrency(plan.weeklyPremium)}</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+              <div>
+                <p className="text-white/70 text-sm">Weekly Premium</p>
+                <p className="text-xl font-semibold">{formatCurrency(planConfig.weekly_premium)}</p>
+              </div>
+              <div>
+                <p className="text-white/70 text-sm">Weekly Cap</p>
+                <p className="text-xl font-semibold">{formatCurrency(planConfig.weekly_cap)}</p>
+              </div>
+              <div>
+                <p className="text-white/70 text-sm">Remaining This Week</p>
+                <p className="text-xl font-semibold">{formatCurrency(remainingCap)}</p>
+              </div>
+              <div>
+                <p className="text-white/70 text-sm">Total Claims Paid</p>
+                <p className="text-xl font-semibold">{formatCurrency(totalClaimsPaid)}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-white/70 text-sm">Weekly Cap</p>
-              <p className="text-xl font-semibold">{formatCurrency(plan.weeklyCap)}</p>
-            </div>
-            <div>
-              <p className="text-white/70 text-sm">Remaining This Week</p>
-              <p className="text-xl font-semibold">{formatCurrency(remainingCap)}</p>
-            </div>
-            <div>
-              <p className="text-white/70 text-sm">Total Claims Paid</p>
-              <p className="text-xl font-semibold">{formatCurrency(totalClaimsPaid)}</p>
-            </div>
-          </div>
 
-          {/* Progress bar for weekly usage */}
-          <div className="mb-4">
-            <div className="flex justify-between text-sm text-white/70 mb-1">
-              <span>Weekly Usage</span>
-              <span>{formatCurrency(worker.insurance.weeklyClaimTotal)} / {formatCurrency(plan.weeklyCap)}</span>
+            {/* Progress bar for weekly usage */}
+            <div className="mb-4">
+              <div className="flex justify-between text-sm text-white/70 mb-1">
+                <span>Weekly Usage</span>
+                <span>{formatCurrency(weeklyClaimTotal)} / {formatCurrency(weeklyCap)}</span>
+              </div>
+              <div className="w-full bg-white/20 rounded-full h-2">
+                <div
+                  className="bg-white rounded-full h-2 transition-all"
+                  style={{ width: `${weeklyCap > 0 ? (weeklyClaimTotal / weeklyCap) * 100 : 0}%` }}
+                ></div>
+              </div>
             </div>
-            <div className="w-full bg-white/20 rounded-full h-2">
-              <div
-                className="bg-white rounded-full h-2 transition-all"
-                style={{ width: `${(worker.insurance.weeklyClaimTotal / plan.weeklyCap) * 100}%` }}
-              ></div>
-            </div>
-          </div>
 
-          {/* Covered Triggers */}
-          <div>
-            <p className="text-white/70 text-sm mb-2">Covered Events</p>
-            <div className="flex flex-wrap gap-2">
-              {plan.triggers.map((t) => (
-                <span key={t} className="inline-flex items-center px-2 py-1 bg-white/20 rounded-lg text-sm">
-                  {TRIGGER_DEFINITIONS[t].icon} {TRIGGER_DEFINITIONS[t].name}
-                </span>
-              ))}
+            {/* Covered Triggers */}
+            <div>
+              <p className="text-white/70 text-sm mb-2">Covered Events</p>
+              <div className="flex flex-wrap gap-2">
+                {planConfig.triggers.map((t) => (
+                  <span key={t} className="inline-flex items-center px-2 py-1 bg-white/20 rounded-lg text-sm">
+                    {TRIGGER_INFO[t]?.icon} {TRIGGER_INFO[t]?.name}
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
+        ) : (
+          <div className="bg-zinc-200 dark:bg-zinc-800 rounded-2xl p-6 mb-6 text-center">
+            <p className="text-zinc-600 dark:text-zinc-400">No active insurance subscription</p>
+            <Link href="/plans" className="text-blue-600 hover:underline mt-2 inline-block">
+              View Plans
+            </Link>
+          </div>
+        )}
 
         {/* Quick Action - Simulate Button */}
         <div className="mb-6">
@@ -249,7 +311,7 @@ export default function DashboardPage() {
               <span className="text-2xl">📦</span>
             </div>
             <p className="text-2xl font-bold text-zinc-900 dark:text-white">
-              {worker.weeklyDeliveries}
+              {weeklyStats?.total_deliveries || 0}
             </p>
             <p className="text-xs text-zinc-500">deliveries</p>
           </div>
@@ -260,7 +322,7 @@ export default function DashboardPage() {
               <span className="text-2xl">💰</span>
             </div>
             <p className="text-2xl font-bold text-zinc-900 dark:text-white">
-              {formatCurrency(worker.weeklyEarnings)}
+              {formatCurrency(weeklyStats?.total_earnings || 0)}
             </p>
             <p className="text-xs text-zinc-500">from deliveries</p>
           </div>
@@ -270,7 +332,7 @@ export default function DashboardPage() {
               <span className="text-zinc-500 dark:text-zinc-400 text-sm">Rating</span>
               <span className="text-2xl">⭐</span>
             </div>
-            <p className="text-2xl font-bold text-zinc-900 dark:text-white">{worker.avgRating}</p>
+            <p className="text-2xl font-bold text-zinc-900 dark:text-white">{weeklyStats?.avg_rating || 5.0}</p>
             <p className="text-xs text-zinc-500">avg score</p>
           </div>
 
@@ -280,7 +342,7 @@ export default function DashboardPage() {
               <span className="text-2xl">⏱️</span>
             </div>
             <p className="text-2xl font-bold text-zinc-900 dark:text-white">
-              {worker.weeklyActiveHours}h
+              {weeklyStats?.active_hours || 0}h
             </p>
             <p className="text-xs text-zinc-500">this week</p>
           </div>
@@ -292,14 +354,14 @@ export default function DashboardPage() {
           <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800">
             <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
               <h3 className="font-semibold text-zinc-900 dark:text-white">Recent Claims</h3>
-              <span className="text-sm text-zinc-500">{worker.claims.length} total</span>
+              <span className="text-sm text-zinc-500">{claims.length} total</span>
             </div>
             <div className="divide-y divide-zinc-200 dark:divide-zinc-800 max-h-80 overflow-y-auto">
-              {worker.claims.length === 0 ? (
+              {claims.length === 0 ? (
                 <div className="p-8 text-center text-zinc-500">No claims yet</div>
               ) : (
-                worker.claims.slice(0, 5).map((claim) => {
-                  const trigger = TRIGGER_DEFINITIONS[claim.triggerType as TriggerType];
+                claims.slice(0, 5).map((claim) => {
+                  const trigger = TRIGGER_INFO[claim.trigger_type];
                   return (
                     <div key={claim.id} className="p-4">
                       <div className="flex items-start justify-between">
@@ -307,16 +369,16 @@ export default function DashboardPage() {
                           <span className="text-2xl mr-3">{trigger?.icon || "📋"}</span>
                           <div>
                             <p className="font-medium text-zinc-900 dark:text-white">
-                              {trigger?.name || claim.triggerType}
+                              {trigger?.name || claim.trigger_type}
                             </p>
                             <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                              {formatDate(claim.date)} • {claim.durationMinutes} mins
+                              {formatDate(claim.claim_date)} • {claim.duration_minutes || 0} mins
                             </p>
                           </div>
                         </div>
                         <div className="text-right">
                           <p className="font-semibold text-zinc-900 dark:text-white">
-                            {formatCurrency(claim.amount)}
+                            {formatCurrency(Number(claim.amount))}
                           </p>
                           <span
                             className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${getStatusColor(
@@ -327,23 +389,10 @@ export default function DashboardPage() {
                           </span>
                         </div>
                       </div>
-                      {claim.status === "rejected" && claim.rejectionReason && (
+                      {claim.status === "rejected" && claim.rejection_reason && (
                         <p className="mt-2 text-xs text-red-500 bg-red-50 dark:bg-red-900/20 p-2 rounded">
-                          {claim.rejectionReason}
+                          {claim.rejection_reason}
                         </p>
-                      )}
-                      {claim.verification && (
-                        <div className="mt-2 flex gap-1 flex-wrap">
-                          <span className={`text-xs px-1.5 py-0.5 rounded ${claim.verification.gpsValid ? "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30" : "bg-red-100 text-red-600 dark:bg-red-900/30"}`}>
-                            GPS {claim.verification.gpsValid ? "✓" : "✗"}
-                          </span>
-                          <span className={`text-xs px-1.5 py-0.5 rounded ${claim.verification.weatherDataMatch ? "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30" : "bg-red-100 text-red-600 dark:bg-red-900/30"}`}>
-                            Weather {claim.verification.weatherDataMatch ? "✓" : "✗"}
-                          </span>
-                          <span className={`text-xs px-1.5 py-0.5 rounded ${claim.verification.mlAnomalyScore < 50 ? "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30" : "bg-yellow-100 text-yellow-600 dark:bg-yellow-900/30"}`}>
-                            AI: {claim.verification.mlAnomalyScore}%
-                          </span>
-                        </div>
                       )}
                     </div>
                   );
@@ -356,13 +405,13 @@ export default function DashboardPage() {
           <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800">
             <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
               <h3 className="font-semibold text-zinc-900 dark:text-white">Recent Payouts</h3>
-              <span className="text-sm text-zinc-500">{worker.payouts.length} total</span>
+              <span className="text-sm text-zinc-500">{payouts.length} total</span>
             </div>
             <div className="divide-y divide-zinc-200 dark:divide-zinc-800 max-h-80 overflow-y-auto">
-              {worker.payouts.length === 0 ? (
+              {payouts.length === 0 ? (
                 <div className="p-8 text-center text-zinc-500">No payouts yet</div>
               ) : (
-                worker.payouts.slice(0, 5).map((payout) => (
+                payouts.slice(0, 5).map((payout) => (
                   <div key={payout.id} className="p-4 flex items-center justify-between">
                     <div className="flex items-center">
                       <div className="w-10 h-10 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center mr-3">
@@ -382,16 +431,16 @@ export default function DashboardPage() {
                       </div>
                       <div>
                         <p className="font-medium text-zinc-900 dark:text-white">
-                          {payout.description}
+                          {payout.description || "Claim Payout"}
                         </p>
                         <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                          {formatDate(payout.date)} • {worker.upiId}
+                          {formatDate(payout.created_at)} • {worker.upi_id || "UPI"}
                         </p>
                       </div>
                     </div>
                     <div className="text-right">
                       <p className="font-semibold text-emerald-600 dark:text-emerald-400">
-                        +{formatCurrency(payout.amount)}
+                        +{formatCurrency(Number(payout.amount))}
                       </p>
                       <span
                         className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${getStatusColor(
@@ -409,23 +458,25 @@ export default function DashboardPage() {
         </div>
 
         {/* Plan Details */}
-        <div className="mt-6 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-4">
-          <h3 className="font-semibold text-zinc-900 dark:text-white mb-4">Plan Details</h3>
-          <div className="grid md:grid-cols-3 gap-4">
-            <div className="p-4 bg-zinc-50 dark:bg-zinc-800 rounded-lg">
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">Hourly Payout Rate</p>
-              <p className="text-xl font-bold text-zinc-900 dark:text-white">{formatCurrency(plan.hourlyPayout)}/hr</p>
-            </div>
-            <div className="p-4 bg-zinc-50 dark:bg-zinc-800 rounded-lg">
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">Max Hours/Day</p>
-              <p className="text-xl font-bold text-zinc-900 dark:text-white">{plan.maxHoursPerDay} hours</p>
-            </div>
-            <div className="p-4 bg-zinc-50 dark:bg-zinc-800 rounded-lg">
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">Waiting Period</p>
-              <p className="text-xl font-bold text-zinc-900 dark:text-white">{plan.waitingPeriod} mins</p>
+        {planConfig && (
+          <div className="mt-6 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-4">
+            <h3 className="font-semibold text-zinc-900 dark:text-white mb-4">Plan Details</h3>
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="p-4 bg-zinc-50 dark:bg-zinc-800 rounded-lg">
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">Hourly Payout Rate</p>
+                <p className="text-xl font-bold text-zinc-900 dark:text-white">{formatCurrency(planConfig.hourly_payout)}/hr</p>
+              </div>
+              <div className="p-4 bg-zinc-50 dark:bg-zinc-800 rounded-lg">
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">Max Hours/Day</p>
+                <p className="text-xl font-bold text-zinc-900 dark:text-white">{planConfig.max_hours_per_day} hours</p>
+              </div>
+              <div className="p-4 bg-zinc-50 dark:bg-zinc-800 rounded-lg">
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">Waiting Period</p>
+                <p className="text-xl font-bold text-zinc-900 dark:text-white">{planConfig.waiting_period_minutes} mins</p>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Vehicle & Account Info */}
         <div className="mt-6 grid md:grid-cols-2 gap-6">
@@ -434,16 +485,16 @@ export default function DashboardPage() {
             <div className="flex items-center">
               <div className="w-12 h-12 bg-zinc-100 dark:bg-zinc-800 rounded-lg flex items-center justify-center mr-4">
                 <span className="text-2xl">
-                  {worker.vehicle.type === "bike" ? "🏍️" : worker.vehicle.type === "scooter" ? "🛵" : "🚲"}
+                  {vehicle?.vehicle_type === "bike" ? "🏍️" : vehicle?.vehicle_type === "scooter" ? "🛵" : "🚲"}
                 </span>
               </div>
               <div>
                 <p className="font-medium text-zinc-900 dark:text-white capitalize">
-                  {worker.vehicle.type}
+                  {vehicle?.vehicle_type || "Not specified"}
                 </p>
-                {worker.vehicle.registrationNumber && (
+                {vehicle?.registration_number && (
                   <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                    {worker.vehicle.registrationNumber}
+                    {vehicle.registration_number}
                   </p>
                 )}
               </div>
@@ -458,7 +509,7 @@ export default function DashboardPage() {
               </div>
               <div>
                 <p className="font-medium text-zinc-900 dark:text-white">UPI</p>
-                <p className="text-sm text-zinc-500 dark:text-zinc-400">{worker.upiId}</p>
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">{worker.upi_id || "Not configured"}</p>
               </div>
             </div>
           </div>
